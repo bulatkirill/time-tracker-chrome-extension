@@ -19,11 +19,11 @@ const onCreated = (tab) => {
             // TODO logic missing in this case
         } else {
             console.log(`Storage doesn't have row for this tabId = ${tabId}`);
-            visitedPages[tabId] = {
+            visitedPages[tabId] = [{
                 tabId: tabId,
                 dateOpen: new Date().getTime(),
                 fullUrl: url
-            };
+            }];
             localStorage.set({visitedPages});
         }
     })
@@ -38,13 +38,15 @@ const onRemoved = (tabId, removeInfo) => {
     console.log(`onRemoved action was fired with tab id = ${tabId}`);
     localStorage.get('visitedPages', (result) => {
         let visitedPages = result.visitedPages;
-        let timeEntry = visitedPages[tabId];
-        if (timeEntry) {
-            console.log(`Time entry was found = ${JSON.stringify(timeEntry)}. Setting closing time.`);
+        let timeEntries = visitedPages[tabId];
+        if (timeEntries) {
+            let lastTimeEntry = timeEntries[timeEntries.length - 1];
+            console.log(`Time entry was found = ${JSON.stringify(lastTimeEntry)}. Setting closing time.`);
             // TODO maybe add check for the closing task that the url of opened
             //  time entry with this tab id is the same as the closing one
-            timeEntry.dateClosed = new Date().getTime();
-            visitedPages[tabId] = timeEntry;
+            lastTimeEntry.dateClosed = new Date().getTime();
+            timeEntries[timeEntries.length - 1] = lastTimeEntry;
+            visitedPages[tabId] = timeEntries;
             localStorage.set({visitedPages});
         } else {
             console.error(`onRemoved event was fired on undefined tab in the local storage. Something is very bad.`)
@@ -53,9 +55,46 @@ const onRemoved = (tabId, removeInfo) => {
     });
 };
 
+/**
+ * https://developer.chrome.com/extensions/tabs#event-onUpdated
+ * @param tabId
+ * @param changeInfo
+ * @param tab
+ */
+const onUpdated = (tabId, changeInfo, tab) => {
+    let status = changeInfo.status;
+    // continue only in case of complete load of the page. Helps with # referencing on the page and double recording the same page
+    if (status === 'complete') {
+        console.log(`status is complete`);
+        const newUrl = tab.url;
+        localStorage.get('visitedPages', (items => {
+            let visitedPages = items.visitedPages;
+            const timeEntries = visitedPages[tabId];
+            const lastTimeEntry = timeEntries[timeEntries.length - 1];
+            // compare old fullUrl and new one. If different - than continue - otherwise it is just reload
+            if (lastTimeEntry.fullUrl !== newUrl) {
+                lastTimeEntry.dateClosed = new Date().getTime();
+                const newTimeEntry = {
+                    tabId: tabId,
+                    dateOpen: new Date().getTime(),
+                    fullUrl: newUrl
+                };
+                timeEntries[timeEntries.length - 1] = lastTimeEntry;
+                timeEntries.push(newTimeEntry);
+                visitedPages[tabId] = timeEntries;
+                localStorage.set({visitedPages})
+            } else {
+                console.log(`It is just reload of the tab wit id = ${tabId}`);
+            }
+        }))
+
+    }
+};
+
 
 chrome.tabs.onCreated.addListener(onCreated);
 chrome.tabs.onRemoved.addListener(onRemoved);
+chrome.tabs.onUpdated.addListener(onUpdated);
 
 // chrome.runtime.onInstalled.addListener(function() {
 //     chrome.storage.sync.set({color: '#3aa757'}, function() {
